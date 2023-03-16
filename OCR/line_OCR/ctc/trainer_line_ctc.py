@@ -31,6 +31,7 @@
 #
 #  The fact that you are presently reading this means that you have had
 #  knowledge of the CeCILL-C license and that you accept its terms.
+from torch import autocast
 
 from basic.generic_training_manager import GenericTrainingManager
 from basic.utils import edit_wer_from_list, nb_words_from_list, nb_chars_from_list, LM_ind_to_str
@@ -61,12 +62,14 @@ class TrainerLineCTC(GenericTrainingManager):
 
         loss_ctc = CTCLoss(blank=self.dataset.tokens["blank"], reduction="sum")
         self.optimizer.zero_grad()
-        x = self.models["encoder"](x)
-        global_pred = self.models["decoder"](x)
+        with autocast(device_type=self.amp_device_type, enabled=self.use_amp):
+            x = self.models["encoder"](x)
+            global_pred = self.models["decoder"](x)
+            loss = loss_ctc(global_pred.permute(2, 0, 1), y, x_reduced_len, y_len)
 
-        loss = loss_ctc(global_pred.permute(2, 0, 1), y, x_reduced_len, y_len)
         self.backward_loss(loss)
-        self.optimizer.step()
+        self.scaler.step(self.optimizer)
+        self.scaler.update()
         pred = torch.argmax(global_pred, dim=1).cpu().numpy()
 
         metrics = self.compute_metrics(pred, y.cpu().numpy(), x_reduced_len, y_len, loss=loss.item(), metric_names=metric_names)

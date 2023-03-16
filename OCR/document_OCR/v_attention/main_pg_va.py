@@ -42,6 +42,7 @@ from basic.generic_dataset_manager import OCRDataset
 import torch
 import torch.multiprocessing as mp
 import wandb
+from pathlib import Path
 
 
 def train_and_test(rank, params, dataset_name, suffix):
@@ -49,8 +50,8 @@ def train_and_test(rank, params, dataset_name, suffix):
         if rank == 0:
             params["wandb"] = wandb.init(
                 project="HTR",
-                name=f"line-{dataset_name}{suffix}",
-                dir=Path("outputs") / params["training_params"]["output_folder"] / "wandb"
+                name=f"paragraph-{dataset_name}{suffix}",
+                dir=Path("outputs") / params["training_params"]["output_folder"]
             )
         else:
             params["wandb"] = None
@@ -70,21 +71,30 @@ def train_and_test(rank, params, dataset_name, suffix):
         for dataset_name in params["dataset_params"]["datasets"].keys():
             for set_name in ["test", "valid", "train"]:
                 model.predict("{}-{}".format(dataset_name, set_name), [(dataset_name, set_name), ], metrics, output=True)
-    except:
+    finally:
         wandb.finish()
-        raise
+        print("DONE")
 
 
 if __name__ == "__main__":
     import sys
     args = sys.argv
-    dataset_name, output_suffix = args[1:]
+    dataset_name, output_suffix, checkpoint_path = args[1:]
     print("~~~ Dataset name:", dataset_name)
     print("~~~ Output suffix:", output_suffix)
+    print("~~~ Checkpoint path:", checkpoint_path)
     print("~~~ # GPUs:", torch.cuda.device_count())
     print("~~~ # Cuda available:", torch.cuda.is_available())
 
     # dataset_name = "IAM"  # ["RIMES", "IAM", "READ_2016"]
+
+    transfer_learning = None
+    if checkpoint_path:
+        transfer_learning = {
+            # model_name: [state_dict_name, checkpoint_path, learnable, strict]
+            "encoder": ["encoder", checkpoint_path, True, True],
+            "decoder": ["decoder", checkpoint_path, True, True],
+        }
 
     params = {
         "dataset_params": {
@@ -172,13 +182,7 @@ if __name__ == "__main__":
                 "attention": VerticalAttention,
                 "decoder": LineDecoderCTC,
             },
-            "transfer_learning": None,
-            # "transfer_learning": {
-            #     # model_name: [state_dict_name, checkpoint_path, learnable, strict]
-            #     "encoder": ["encoder", "../../line_OCR/ctc/outputs/iam/checkpoints/best_XX.pt", True, True],
-            #     "decoder": ["decoder", "../../line_OCR/ctc/outputs/iam/checkpoints/best_XX.pt", True, True],
-            #
-            # },
+            "transfer_learning": transfer_learning,
             "input_channels": 3,  # 3 for RGB images, 1 for grayscale images
 
             # dropout probability for standard dropout (half dropout probability is taken for spatial dropout)
@@ -214,6 +218,7 @@ if __name__ == "__main__":
             "use_ddp": True,  # Use DistributedDataParallel
             "ddp_port": "10000",  # Port for Distributed Data Parallel communications
             "use_apex": False,  # Enable mix-precision with apex package
+            "use_amp": True,  # Enable mix-precision with torch amp package
             "nb_gpu": torch.cuda.device_count(),
             "optimizer": {
                 "class": Adam,

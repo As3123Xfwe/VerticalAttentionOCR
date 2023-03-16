@@ -51,7 +51,7 @@ def train_and_test(rank, params, dataset_name, suffix):
             params["wandb"] = wandb.init(
                 project="HTR",
                 name=f"line-{dataset_name}{suffix}",
-                dir=Path("outputs") / params["training_params"]["output_folder"] / "wandb"
+                dir=Path("outputs") / params["training_params"]["output_folder"]
             )
         else:
             params["wandb"] = None
@@ -70,9 +70,9 @@ def train_and_test(rank, params, dataset_name, suffix):
         for dataset_name in params["dataset_params"]["datasets"].keys():
             for set_name in ["test", "valid", "train"]:
                 model.predict("{}-{}".format(dataset_name, set_name), [(dataset_name, set_name), ], metrics, output=True)
-    except:
+    finally:
         wandb.finish()
-        raise
+        print("DONE")
 
 
 if __name__ == "__main__":
@@ -180,6 +180,7 @@ if __name__ == "__main__":
             "interval_save_weights": None,  # None: keep best and last only
             "use_ddp": True,  # Use DistributedDataParallel
             "use_apex": False,  # Enable mix-precision with apex package
+            "use_amp": True,  # Enable mix-precision with torch amp package
             "nb_gpu": torch.cuda.device_count(),
             "batch_size": 16,  # mini-batch size per GPU
             "optimizer": {

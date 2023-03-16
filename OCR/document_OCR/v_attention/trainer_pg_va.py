@@ -31,6 +31,7 @@
 #
 #  The fact that you are presently reading this means that you have had
 #  knowledge of the CeCILL-C license and that you accept its terms.
+from torch import autocast
 
 from basic.generic_training_manager import GenericTrainingManager
 from torch.nn import CrossEntropyLoss, CTCLoss
@@ -73,44 +74,46 @@ class Manager(GenericTrainingManager):
             y.append(torch.ones((batch_size, 1), dtype=torch.long , device=self.device)*self.dataset.tokens["pad"])
             y_len.append([0 for _ in range(batch_size)])
 
-        status = "init"
-        features = self.models["encoder"](x)
-        batch_size, c, h, w = features.size()
-        attention_weights = torch.zeros((batch_size, h), dtype=torch.float, device=self.device)
-        coverage = attention_weights.clone() if self.params["model_params"]["use_coverage_vector"] else None
-        hidden = [k for k in self.get_init_hidden(batch_size)] if self.params["model_params"]["use_hidden"] else None
+        with autocast(device_type=self.amp_device_type, enabled=self.use_amp):
+            status = "init"
+            features = self.models["encoder"](x)
+            batch_size, c, h, w = features.size()
+            attention_weights = torch.zeros((batch_size, h), dtype=torch.float, device=self.device)
+            coverage = attention_weights.clone() if self.params["model_params"]["use_coverage_vector"] else None
+            hidden = [k for k in self.get_init_hidden(batch_size)] if self.params["model_params"]["use_hidden"] else None
 
-        line_preds = [list() for _ in range(batch_size)]
-        for i in range(num_iter):
-            context_vector, attention_weights, decision = self.models["attention"](features, attention_weights, coverage, hidden, status=status)
-            status = "inprogress"
-            coverage = coverage + attention_weights if self.params["model_params"]["use_coverage_vector"] else None
-            
-            if mode in ["fixed", "early"] or i < max_nb_lines:
-                probs, hidden = self.models["decoder"](context_vector, hidden)
-                loss_ctc = loss_ctc_func(probs.permute(2, 0, 1), y[i], x_reduced_len, y_len[i])
-                total_loss_ctc += loss_ctc.item()
-                global_loss += loss_ctc
-            
-            if mode == "learned":
-                gt_decision = torch.ones((batch_size, ), device=self.device, dtype=torch.long)
-                for j in range(batch_size):
-                    if y_len[i][j] == 0:
-                        if i > 0 and y_len[i-1][j] == 0:
-                            gt_decision[j] = self.dataset.tokens["pad"]
-                        else:
-                            gt_decision[j] = 0
-                loss_ce = loss_ce_func(decision, gt_decision)
-                total_loss_ce += loss_ce.item()
-                global_loss += loss_ce
+            line_preds = [list() for _ in range(batch_size)]
+            for i in range(num_iter):
+                context_vector, attention_weights, decision = self.models["attention"](features, attention_weights, coverage, hidden, status=status)
+                status = "inprogress"
+                coverage = coverage + attention_weights if self.params["model_params"]["use_coverage_vector"] else None
 
-            line_pred = [torch.argmax(lp, dim=0).detach().cpu().numpy()[:x_reduced_len[j]] if y_len[i][j] > 0 else None for j, lp in enumerate(probs)]
-            for i, lp in enumerate(line_pred):
-                if lp is not None:
-                    line_preds[i].append(lp)
+                if mode in ["fixed", "early"] or i < max_nb_lines:
+                    probs, hidden = self.models["decoder"](context_vector, hidden)
+                    loss_ctc = loss_ctc_func(probs.permute(2, 0, 1), y[i], x_reduced_len, y_len[i])
+                    total_loss_ctc += loss_ctc.item()
+                    global_loss += loss_ctc
+
+                if mode == "learned":
+                    gt_decision = torch.ones((batch_size, ), device=self.device, dtype=torch.long)
+                    for j in range(batch_size):
+                        if y_len[i][j] == 0:
+                            if i > 0 and y_len[i-1][j] == 0:
+                                gt_decision[j] = self.dataset.tokens["pad"]
+                            else:
+                                gt_decision[j] = 0
+                    loss_ce = loss_ce_func(decision, gt_decision)
+                    total_loss_ce += loss_ce.item()
+                    global_loss += loss_ce
+
+                line_pred = [torch.argmax(lp, dim=0).detach().cpu().numpy()[:x_reduced_len[j]] if y_len[i][j] > 0 else None for j, lp in enumerate(probs)]
+                for i, lp in enumerate(line_pred):
+                    if lp is not None:
+                        line_preds[i].append(lp)
 
         self.backward_loss(global_loss)
-        self.optimizer.step()
+        self.scaler.step(self.optimizer)
+        self.scaler.update()
 
         metrics = self.compute_metrics(line_preds, batch_data["raw_labels"], metric_names, from_line=True)
         if "loss_ctc" in metric_names:

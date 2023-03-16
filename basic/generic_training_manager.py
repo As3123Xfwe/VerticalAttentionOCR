@@ -89,6 +89,10 @@ class GenericTrainingManager:
         self.load_dataset()
         self.load_model()
 
+        self.amp_device_type = "cpu" if self.params["training_params"]["force_cpu"] else "cuda"
+        self.use_amp = self.params["training_params"]["use_amp"]
+        self.scaler = torch.cuda.amp.GradScaler(enabled=self.use_amp)
+
     def init_paths(self):
         ## Create output folders
         output_path = os.path.join("outputs", self.params["training_params"]["output_folder"])
@@ -445,7 +449,7 @@ class GenericTrainingManager:
             with apex.amp.scale_loss(loss, self.optimizer) as scaled_loss:
                 scaled_loss.backward(retain_graph=retain_graph)
         else:
-            loss.backward(retain_graph=retain_graph)
+            self.scaler.scale(loss).backward(retain_graph=retain_graph)
 
     def train(self):
         # init tensorboard file and output param summary file
