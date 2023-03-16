@@ -59,6 +59,10 @@ from basic.generic_dataset_manager import DatasetManager
 class GenericTrainingManager:
 
     def __init__(self, params):
+        self.wandb = params["wandb"]
+        self.wandb_logs = {}
+        del params["wandb"]
+
         self.type = None
         self.is_master = False
         self.params = params
@@ -491,8 +495,12 @@ class GenericTrainingManager:
                 t.set_postfix(values=str(display_values))
             # log metrics in tensorboard file
             if self.is_master:
+
                 for key in display_values.keys():
-                    self.writer.add_scalar('{}_{}'.format(self.params["dataset_params"]["train"]["name"], key), display_values[key], num_epoch)
+                    scalar_name = '{}_{}'.format(self.params["dataset_params"]["train"]["name"], key)
+                    scalar_value = display_values[key]
+                    self.wandb_logs[scalar_name] = scalar_value
+                    self.writer.add_scalar(scalar_name, scalar_value, num_epoch)
             self.latest_train_metrics = display_values
 
             # Handle curriculum learning update
@@ -508,12 +516,19 @@ class GenericTrainingManager:
                     # log valid metrics in tensorboard file
                     if self.is_master:
                         for key in eval_values.keys():
-                            self.writer.add_scalar('{}_{}'.format(valid_set_name, key), eval_values[key], num_epoch)
+                            scalar_name = '{}_{}'.format(valid_set_name, key)
+                            scalar_value = eval_values[key]
+                            self.wandb_logs[scalar_name] = scalar_value
+                            self.writer.add_scalar(scalar_name, scalar_value, num_epoch)
                         if valid_set_name == self.params["training_params"]["set_name_focus_metric"] and (self.best is None or \
                                 (eval_values[focus_metric_name] < self.best and self.params["training_params"]["expected_metric_value"] == "low") or\
                                 (eval_values[focus_metric_name] > self.best and self.params["training_params"]["expected_metric_value"] == "high")):
                             self.save_model(epoch=num_epoch, name="best")
                             self.best = eval_values[focus_metric_name]
+
+            # Log progress to wandb
+            if self.is_master and self.wandb:
+                self.wandb.log(self.wandb_logs)
 
             ## save model weights
             if self.is_master:

@@ -41,27 +41,50 @@ from torch.optim import Adam
 from basic.generic_dataset_manager import OCRDataset
 import torch.multiprocessing as mp
 import torch
+import wandb
+from pathlib import Path
 
 
-def train_and_test(rank, params):
-    params["training_params"]["ddp_rank"] = rank
-    model = TrainerLineCTC(params)
-    # Model trains until max_time_training or max_nb_epochs is reached
-    model.train()
+def train_and_test(rank, params, dataset_name, suffix):
+    try:
+        if rank == 0:
+            params["wandb"] = wandb.init(
+                project="HTR",
+                name=f"line-{dataset_name}{suffix}",
+                dir=Path("outputs") / params["training_params"]["output_folder"] / "wandb"
+            )
+        else:
+            params["wandb"] = None
 
-    # load weights giving best CER on valid set
-    model.params["training_params"]["load_epoch"] = "best"
-    model.load_model()
+        params["training_params"]["ddp_rank"] = rank
+        model = TrainerLineCTC(params)
+        # Model trains until max_time_training or max_nb_epochs is reached
+        model.train()
 
-    # compute metrics on train, valid and test sets (in eval conditions)
-    metrics = ["cer", "wer", "time", "worst_cer"]
-    for dataset_name in params["dataset_params"]["datasets"].keys():
-        for set_name in ["test", "valid", "train"]:
-            model.predict("{}-{}".format(dataset_name, set_name), [(dataset_name, set_name), ], metrics, output=True)
+        # load weights giving best CER on valid set
+        model.params["training_params"]["load_epoch"] = "best"
+        model.load_model()
+
+        # compute metrics on train, valid and test sets (in eval conditions)
+        metrics = ["cer", "wer", "time", "worst_cer"]
+        for dataset_name in params["dataset_params"]["datasets"].keys():
+            for set_name in ["test", "valid", "train"]:
+                model.predict("{}-{}".format(dataset_name, set_name), [(dataset_name, set_name), ], metrics, output=True)
+    except:
+        wandb.finish()
+        raise
 
 
 if __name__ == "__main__":
-    dataset_name = "IAM"  # ["RIMES", "IAM", "READ_2016"]
+    import sys
+    args = sys.argv
+    dataset_name, output_suffix = args[1:]
+    print("~~~ Dataset name:", dataset_name)
+    print("~~~ Output suffix:", output_suffix)
+    print("~~~ # GPUs:", torch.cuda.device_count())
+    print("~~~ # Cuda available:", torch.cuda.is_available())
+
+    # dataset_name = "IAM"  # ["RIMES", "IAM", "READ_2016"]
 
     params = {
         "dataset_params": {
@@ -150,13 +173,13 @@ if __name__ == "__main__":
         },
 
         "training_params": {
-            "output_folder": "fcn_iam_line",  # folder names for logs and weigths
+            "output_folder": f"fcn_{dataset_name.lower()}_line{output_suffix}",  # folder names for logs and weigths
             "max_nb_epochs": 5000,  # max number of epochs for the training
             "max_training_time":  3600*(24+23),  # max training time limit (in seconds)
             "load_epoch": "best",  # ["best", "last"], to load weights from best epoch or last trained epoch
             "interval_save_weights": None,  # None: keep best and last only
-            "use_ddp": False,  # Use DistributedDataParallel
-            "use_apex": True,  # Enable mix-precision with apex package
+            "use_ddp": True,  # Use DistributedDataParallel
+            "use_apex": False,  # Enable mix-precision with apex package
             "nb_gpu": torch.cuda.device_count(),
             "batch_size": 16,  # mini-batch size per GPU
             "optimizer": {
@@ -178,6 +201,6 @@ if __name__ == "__main__":
     }
 
     if params["training_params"]["use_ddp"] and not params["training_params"]["force_cpu"]:
-        mp.spawn(train_and_test, args=(params,), nprocs=params["training_params"]["nb_gpu"])
+        mp.spawn(train_and_test, args=(params, dataset_name, output_suffix), nprocs=params["training_params"]["nb_gpu"])
     else:
-        train_and_test(0, params)
+        train_and_test(0, params, dataset_name, output_suffix)

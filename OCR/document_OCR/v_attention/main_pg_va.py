@@ -41,29 +41,50 @@ from basic.models import FCN_Encoder
 from basic.generic_dataset_manager import OCRDataset
 import torch
 import torch.multiprocessing as mp
+import wandb
 
 
-def train_and_test(rank, params):
-    params["training_params"]["ddp_rank"] = rank
-    model = Manager(params)
-    # Model trains until max_time_training or max_nb_epochs is reached
-    model.train()
+def train_and_test(rank, params, dataset_name, suffix):
+    try:
+        if rank == 0:
+            params["wandb"] = wandb.init(
+                project="HTR",
+                name=f"line-{dataset_name}{suffix}",
+                dir=Path("outputs") / params["training_params"]["output_folder"] / "wandb"
+            )
+        else:
+            params["wandb"] = None
 
-    # load weights giving best CER on valid set
-    model.params["training_params"]["load_epoch"] = "best"
-    model.load_model()
+        params["training_params"]["ddp_rank"] = rank
+        model = Manager(params)
+        # Model trains until max_time_training or max_nb_epochs is reached
+        model.train()
+
+        # load weights giving best CER on valid set
+        model.params["training_params"]["load_epoch"] = "best"
+        model.load_model()
 
 
-    # compute metrics on train, valid and test sets (in eval conditions)
-    metrics = ["cer", "wer", "diff_len", "time", "worst_cer"]
-    for dataset_name in params["dataset_params"]["datasets"].keys():
-        for set_name in ["test", "valid", "train"]:
-            model.predict("{}-{}".format(dataset_name, set_name), [(dataset_name, set_name), ], metrics, output=True)
+        # compute metrics on train, valid and test sets (in eval conditions)
+        metrics = ["cer", "wer", "diff_len", "time", "worst_cer"]
+        for dataset_name in params["dataset_params"]["datasets"].keys():
+            for set_name in ["test", "valid", "train"]:
+                model.predict("{}-{}".format(dataset_name, set_name), [(dataset_name, set_name), ], metrics, output=True)
+    except:
+        wandb.finish()
+        raise
 
 
 if __name__ == "__main__":
+    import sys
+    args = sys.argv
+    dataset_name, output_suffix = args[1:]
+    print("~~~ Dataset name:", dataset_name)
+    print("~~~ Output suffix:", output_suffix)
+    print("~~~ # GPUs:", torch.cuda.device_count())
+    print("~~~ # Cuda available:", torch.cuda.is_available())
 
-    dataset_name = "IAM"  # ["RIMES", "IAM", "READ_2016"]
+    # dataset_name = "IAM"  # ["RIMES", "IAM", "READ_2016"]
 
     params = {
         "dataset_params": {
@@ -190,9 +211,9 @@ if __name__ == "__main__":
             "load_epoch": "best",  # ["best", "last"], to load weights from best epoch or last trained epoch
             "interval_save_weights": None,  # None: keep best and last only
             "batch_size": 8,  # mini-batch size per GPU
-            "use_ddp": False,  # Use DistributedDataParallel
+            "use_ddp": True,  # Use DistributedDataParallel
             "ddp_port": "10000",  # Port for Distributed Data Parallel communications
-            "use_apex": True,  # Enable mix-precision with apex package
+            "use_apex": False,  # Enable mix-precision with apex package
             "nb_gpu": torch.cuda.device_count(),
             "optimizer": {
                 "class": Adam,
@@ -221,6 +242,6 @@ if __name__ == "__main__":
     params["model_params"]["stop_mode"] = params["training_params"]["stop_mode"]
 
     if params["training_params"]["use_ddp"] and not params["training_params"]["force_cpu"]:
-        mp.spawn(train_and_test, args=(params,), nprocs=params["training_params"]["nb_gpu"])
+        mp.spawn(train_and_test, args=(params, dataset_name, output_suffix), nprocs=params["training_params"]["nb_gpu"])
     else:
-        train_and_test(0, params)
+        train_and_test(0, params, dataset_name, output_suffix)
