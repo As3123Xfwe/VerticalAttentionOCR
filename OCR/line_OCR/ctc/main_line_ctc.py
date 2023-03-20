@@ -175,14 +175,14 @@ if __name__ == "__main__":
         "training_params": {
             "output_folder": f"fcn_{dataset_name.lower()}_line{output_suffix}",  # folder names for logs and weigths
             "max_nb_epochs": 5000,  # max number of epochs for the training
-            "max_training_time":  3600*(24+23),  # max training time limit (in seconds)
+            "max_training_time":  3600 * (24),  # max training time limit (in seconds)
             "load_epoch": "best",  # ["best", "last"], to load weights from best epoch or last trained epoch
             "interval_save_weights": None,  # None: keep best and last only
             "use_ddp": True,  # Use DistributedDataParallel
             "use_apex": False,  # Enable mix-precision with apex package
             "use_amp": True,  # Enable mix-precision with torch amp package
             "nb_gpu": torch.cuda.device_count(),
-            "batch_size": 16,  # mini-batch size per GPU
+            "batch_size": 64,  # mini-batch size per GPU
             "optimizer": {
                 "class": Adam,
                 "args": {

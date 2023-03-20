@@ -239,15 +239,28 @@ class GenericTrainingManager:
                     try:
                         # Load pretrained weights for model
                         self.models[model_name].load_state_dict(checkpoint["{}_state_dict".format(state_dict_name)], strict=strict)
-                        print("transfered weights for {}".format(state_dict_name), flush=True)
+                        print("(1) transfered weights for {}".format(state_dict_name), flush=True)
                     except RuntimeError as e:
-                        print(e, flush=True)
-                        # if error, try to load each parts of the model (useful if only few layers are different)
-                        for key in checkpoint["{}_state_dict".format(state_dict_name)].keys():
-                            try:
-                                self.models[model_name].load_state_dict({key: checkpoint["{}_state_dict".format(state_dict_name)][key]}, strict=False)
-                            except RuntimeError as e:
-                                print(e, flush=True)
+                        # print(e, flush=True)
+                        try:
+                            state_dict = {
+                                k.lstrip("module."): v
+                                for k, v
+                                in checkpoint["{}_state_dict".format(state_dict_name)].items()
+                            }
+                            self.models[model_name].load_state_dict(state_dict, strict=strict)
+                            print("(2) transfered weights for {}".format(state_dict_name), flush=True)
+                        except RuntimeError as e:
+                            # print(e, flush=True)
+                            # if error, try to load each parts of the model (useful if only few layers are different)
+                            for key in checkpoint["{}_state_dict".format(state_dict_name)].keys():
+                                try:
+                                    self.models[model_name].load_state_dict({key: checkpoint["{}_state_dict".format(state_dict_name)][key]}, strict=False)
+                                except RuntimeError as e:
+                                    print(e, flush=True)
+                                    raise
+
+                            print("(3) transfered weights for {}".format(state_dict_name), flush=True)
                     # Set parameters no trainable
                     if not learnable:
                         self.set_model_learnable(self.models[model_name], False)
