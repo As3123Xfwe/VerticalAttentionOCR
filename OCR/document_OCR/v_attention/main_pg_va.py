@@ -68,8 +68,9 @@ def train_and_test(rank, params, dataset_name, suffix):
 
         # compute metrics on train, valid and test sets (in eval conditions)
         metrics = ["cer", "wer", "diff_len", "time", "worst_cer"]
-        for dataset_name in params["dataset_params"]["datasets"].keys():
-            for set_name in ["test", "valid", "train"]:
+        for dataset_name, dataset_path in params["dataset_params"]["datasets"].items():
+            # for set_name in ["test", "valid", "train"]:
+            for set_name in [f.name for f in Path(dataset_path).iterdir() if f.is_dir()]:
                 model.predict("{}-{}".format(dataset_name, set_name), [(dataset_name, set_name), ], metrics, output=True)
     finally:
         wandb.finish()
@@ -80,6 +81,9 @@ if __name__ == "__main__":
     import sys
     args = sys.argv
     dataset_name, output_suffix, checkpoint_path = args[1:]
+    dataset_path = "../../../Datasets/formatted/{}_paragraph".format(dataset_name)
+    eval_on_valid = "valid" in {f.name for f in Path(dataset_path).iterdir() if f.is_dir()}
+
     print("~~~ Dataset name:", dataset_name)
     print("~~~ Output suffix:", output_suffix)
     print("~~~ Checkpoint path:", checkpoint_path)
@@ -99,7 +103,7 @@ if __name__ == "__main__":
     params = {
         "dataset_params": {
             "datasets": {
-                dataset_name: "../../../Datasets/formatted/{}_paragraph".format(dataset_name),
+                dataset_name: dataset_path,
             },
             "train": {
                 "name": "{}-train".format(dataset_name),
@@ -209,8 +213,8 @@ if __name__ == "__main__":
         },
 
         "training_params": {
-            "output_folder": "van_iam_paragraph_learned_stop",  # folder names for logs and weigths
-            "max_nb_epochs": 5000,  # max number of epochs for the training
+            "output_folder": f"van_{dataset_name.lower()}_paragraph_learned_stop{output_suffix}",  # folder names for logs and weigths
+            "max_nb_epochs": 3000,  # max number of epochs for the training
             "max_training_time": 3600 * (24),  # max training time limit (in seconds)
             "load_epoch": "best",  # ["best", "last"], to load weights from best epoch or last trained epoch
             "interval_save_weights": None,  # None: keep best and last only
@@ -227,7 +231,7 @@ if __name__ == "__main__":
                     "amsgrad": False,
                 }
             },
-            "eval_on_valid": True,  # Whether to eval and logs metrics on validation set during training or not
+            "eval_on_valid": eval_on_valid,  # Whether to eval and logs metrics on validation set during training or not
             "eval_on_valid_interval": 2,  # Interval (in epochs) to evaluate during training
             "focus_metric": "cer",  # Metrics to focus on to determine best epoch
             "expected_metric_value": "low",  # ["high", "low"] What is best for the focus metric value
