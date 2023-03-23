@@ -54,7 +54,7 @@ def train_and_test(rank, params, dataset_name, suffix):
     model.load_model()
 
     # compute metrics on train, valid and test sets (in eval conditions)
-    metrics = ["cer", "wer", "time", "worst_cer"]
+    metrics = ["cer", "wer", "time", "worst_cer", "pred"]
     for dataset_name, dataset_path in params["dataset_params"]["datasets"].items():
         for set_name in ["test", "valid", "train"]:
             model.predict("{}-{}".format(dataset_name, set_name), [(dataset_name, set_name), ], metrics, output=True)

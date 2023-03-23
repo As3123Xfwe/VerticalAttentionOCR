@@ -54,6 +54,7 @@ from tqdm import tqdm
 from time import time
 from torch.nn.parallel import DistributedDataParallel as tDDP
 from basic.generic_dataset_manager import DatasetManager
+from pathlib import Path
 
 
 class GenericTrainingManager:
@@ -208,7 +209,15 @@ class GenericTrainingManager:
                             self.models[model_name] = to_DDP(self.models[model_name], self.params["training_params"]["use_apex"], self.ddp_config["rank"])
                     # Load model weights from past training
                     for model_name in self.models.keys():
-                        self.models[model_name].load_state_dict(checkpoint["{}_state_dict".format(model_name)])
+                        try:
+                            self.models[model_name].load_state_dict(checkpoint["{}_state_dict".format(model_name)])
+                        except RuntimeError:
+                            state_dict = {
+                                k.removeprefix("module."): v
+                                for k, v
+                                in checkpoint["{}_state_dict".format(model_name)].items()
+                            }
+                            self.models[model_name].load_state_dict(state_dict)
                     # Load optimizer state from past training
                     if not reset_optimizer:
                         self.optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
@@ -244,7 +253,7 @@ class GenericTrainingManager:
                         # print(e, flush=True)
                         try:
                             state_dict = {
-                                k.lstrip("module."): v
+                                k.removeprefix("module."): v
                                 for k, v
                                 in checkpoint["{}_state_dict".format(state_dict_name)].items()
                             }
@@ -693,7 +702,22 @@ class GenericTrainingManager:
         raise NotImplementedError
 
     def output_pred(self, pred, set_name):
-        raise NotImplementedError
+        predictions = {}
+        for p, t, f in zip(*pred):
+            dataset, split, filename = Path(f).parts
+            if dataset not in predictions:
+                predictions[dataset] = {}
+            if split not in predictions[dataset]:
+                predictions[dataset][split] = {}
+            predictions[dataset][split][filename] = (t, p)
+
+        for dataset in sorted(predictions.keys()):
+            for split in sorted(predictions[dataset].keys()):
+                predictions_path = Path(self.paths["results"]) / f"{dataset}_{self.latest_epoch}" / split
+                predictions_path.mkdir(exist_ok=True, parents=True)
+                for filename, (true, predicted) in sorted(predictions[dataset][split].items()):
+                    with open(predictions_path / f"{Path(filename).stem}.txt", "w") as f:
+                        print(predicted, file=f)
 
     def add_checkpoint_info(self, load_mode="last", **kwargs):
         for filename in os.listdir(self.paths["checkpoints"]):
