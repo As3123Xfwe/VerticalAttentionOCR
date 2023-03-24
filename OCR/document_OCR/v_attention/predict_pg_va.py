@@ -63,8 +63,7 @@ def train_and_test(rank, params):
 if __name__ == "__main__":
     import sys
     args = sys.argv
-    train_dataset_name, output_suffix, checkpoint_path, dataset_name, constraints = args[1:]
-    constraints = constraints.split()
+    train_dataset_name, output_suffix, checkpoint_path, dataset_name, *constraints = args[1:]
 
     print("~~~ Train dataset name:", dataset_name)
     print("~~~ Output suffix:", output_suffix)
