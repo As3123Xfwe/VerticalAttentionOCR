@@ -80,11 +80,13 @@ def train_and_test(rank, params, dataset_name, suffix):
 if __name__ == "__main__":
     import sys
     args = sys.argv
-    dataset_name, output_suffix, checkpoint_path = args[1:]
+    dataset_name, output_suffix, checkpoint_path, constraints = args[1:]
+    constraints = constraints.split()
 
     print("~~~ Dataset name:", dataset_name)
     print("~~~ Output suffix:", output_suffix)
     print("~~~ Checkpoint path:", checkpoint_path)
+    print("~~~ Constraints:", constraints)
     print("~~~ # GPUs:", torch.cuda.device_count())
     print("~~~ # Cuda available:", torch.cuda.is_available())
 
@@ -117,7 +119,7 @@ if __name__ == "__main__":
                 "padding_value": 0,  # Image padding value
                 "padding_token": None,  # Label padding value (None: default value is chosen)
                 "charset_mode": "CTC",  # add blank label
-                "constraints": ["padding", "CTC_va"],  # Padding for models constraints and CTC requirements
+                "constraints": ["padding", "CTC_va"] + constraints,  # Padding for models constraints and CTC requirements
                 "padding": {
                     "min_height": 480,  # to handle model requirements (AdaptivePooling)
                     "min_width": 800,  # to handle model requirements (AdaptivePooling)

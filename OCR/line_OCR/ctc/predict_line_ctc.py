@@ -63,11 +63,13 @@ def train_and_test(rank, params):
 if __name__ == "__main__":
     import sys
     args = sys.argv
-    train_dataset_name, output_suffix, dataset_name = args[1:]
+    train_dataset_name, output_suffix, dataset_name, constraints = args[1:]
+    constraints = constraints.split()
 
     print("~~~ Train dataset name:", train_dataset_name)
     print("~~~ Output suffix:", output_suffix)
     print("~~~ Dataset name:", dataset_name)
+    print("~~~ Constraints:", ", ".join(constraints))
     print("~~~ # GPUs:", torch.cuda.device_count())
     print("~~~ # Cuda available:", torch.cuda.is_available())
 
@@ -92,7 +94,7 @@ if __name__ == "__main__":
                 "padding_value": 0,  # Image padding value
                 "padding_token": 1000,  # Label padding value (None: default value is chosen)
                 "charset_mode": "CTC",  # add blank token
-                "constraints": ["CTC_line"],  # Padding for CTC requirements if necessary
+                "constraints": ["CTC_line"] + constraints,  # Padding for CTC requirements if necessary
                 "preprocessings": [
                     {
                         "type": "dpi",  # modify image resolution
