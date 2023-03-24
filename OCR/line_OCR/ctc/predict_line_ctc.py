@@ -43,7 +43,7 @@ import torch.multiprocessing as mp
 import torch
 
 
-def train_and_test(rank, params, dataset_name, suffix):
+def train_and_test(rank, params):
     params["wandb"] = None
 
     params["training_params"]["ddp_rank"] = rank
@@ -63,10 +63,11 @@ def train_and_test(rank, params, dataset_name, suffix):
 if __name__ == "__main__":
     import sys
     args = sys.argv
-    dataset_name, output_suffix = args[1:]
+    train_dataset_name, output_suffix, dataset_name = args[1:]
 
-    print("~~~ Dataset name:", dataset_name)
+    print("~~~ Train dataset name:", train_dataset_name)
     print("~~~ Output suffix:", output_suffix)
+    print("~~~ Dataset name:", dataset_name)
     print("~~~ # GPUs:", torch.cuda.device_count())
     print("~~~ # Cuda available:", torch.cuda.is_available())
 
@@ -159,7 +160,7 @@ if __name__ == "__main__":
         },
 
         "training_params": {
-            "output_folder": f"fcn_{dataset_name.lower()}_line{output_suffix}",  # folder names for logs and weigths
+            "output_folder": f"fcn_{train_dataset_name.lower()}_line{output_suffix}",  # folder names for logs and weigths
             "max_nb_epochs": 3000,  # max number of epochs for the training
             "max_training_time":  3600 * (24),  # max training time limit (in seconds)
             "load_epoch": "best",  # ["best", "last"], to load weights from best epoch or last trained epoch
@@ -188,6 +189,6 @@ if __name__ == "__main__":
     }
 
     if params["training_params"]["use_ddp"] and not params["training_params"]["force_cpu"]:
-        mp.spawn(train_and_test, args=(params, dataset_name, output_suffix), nprocs=params["training_params"]["nb_gpu"])
+        mp.spawn(train_and_test, args=(params,), nprocs=params["training_params"]["nb_gpu"])
     else:
-        train_and_test(0, params, dataset_name, output_suffix)
+        train_and_test(0, params)

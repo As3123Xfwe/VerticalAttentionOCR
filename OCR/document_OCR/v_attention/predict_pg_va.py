@@ -43,7 +43,7 @@ import torch
 import torch.multiprocessing as mp
 
 
-def train_and_test(rank, params, dataset_name, suffix):
+def train_and_test(rank, params):
     params["wandb"] = None
 
     params["training_params"]["ddp_rank"] = rank
@@ -63,11 +63,12 @@ def train_and_test(rank, params, dataset_name, suffix):
 if __name__ == "__main__":
     import sys
     args = sys.argv
-    dataset_name, output_suffix, checkpoint_path = args[1:]
+    train_dataset_name, output_suffix, checkpoint_path, dataset_name = args[1:]
 
-    print("~~~ Dataset name:", dataset_name)
+    print("~~~ Train dataset name:", dataset_name)
     print("~~~ Output suffix:", output_suffix)
     print("~~~ Checkpoint path:", checkpoint_path)
+    print("~~~ Dataset name:", dataset_name)
     print("~~~ # GPUs:", torch.cuda.device_count())
     print("~~~ # Cuda available:", torch.cuda.is_available())
 
@@ -194,7 +195,7 @@ if __name__ == "__main__":
         },
 
         "training_params": {
-            "output_folder": f"van_{dataset_name.lower()}_paragraph_learned_stop{output_suffix}",  # folder names for logs and weigths
+            "output_folder": f"van_{train_dataset_name.lower()}_paragraph_learned_stop{output_suffix}",  # folder names for logs and weigths
             "max_nb_epochs": 3000,  # max number of epochs for the training
             "max_training_time": 3600 * (24),  # max training time limit (in seconds)
             "load_epoch": "best",  # ["best", "last"], to load weights from best epoch or last trained epoch
@@ -232,6 +233,6 @@ if __name__ == "__main__":
     params["model_params"]["stop_mode"] = params["training_params"]["stop_mode"]
 
     if params["training_params"]["use_ddp"] and not params["training_params"]["force_cpu"]:
-        mp.spawn(train_and_test, args=(params, dataset_name, output_suffix), nprocs=params["training_params"]["nb_gpu"])
+        mp.spawn(train_and_test, args=(params,), nprocs=params["training_params"]["nb_gpu"])
     else:
-        train_and_test(0, params, dataset_name, output_suffix)
+        train_and_test(0, params)
