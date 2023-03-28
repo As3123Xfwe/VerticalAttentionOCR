@@ -35,7 +35,7 @@
 
 from torch.utils.data import Dataset, DataLoader
 from torch.utils.data.distributed import DistributedSampler
-from torchvision.transforms.functional import adjust_brightness, adjust_contrast
+from torchvision.transforms.functional import adjust_brightness, adjust_contrast, InterpolationMode
 from torchvision.transforms import RandomPerspective
 from basic.transforms import SignFlipping, DPIAdjusting, Dilation, Erosion, ElasticDistortion, RandomTransform
 from basic.utils import LM_str_to_ind
@@ -46,6 +46,7 @@ from PIL import Image
 import cv2
 import copy
 import torch
+import pandas as pd
 
 
 class DatasetManager:
@@ -136,16 +137,19 @@ class DatasetManager:
                 self.valid_samplers[custom_name] = None
 
     def load_dataloaders(self):
+        n_workers = self.params['num_gpu'] * 4
+        print(f"Create DataLoader with {n_workers} workers")
         self.train_loader = DataLoader(self.train_dataset, batch_size=self.params["batch_size"],
                                        shuffle=True if not self.train_sampler else False,
                                        sampler=self.train_sampler,
-                                       num_workers=self.params["num_gpu"], pin_memory=True, drop_last=False,
+                                       num_workers=n_workers, pin_memory=True, drop_last=False,
                                        collate_fn=self.my_collate_function)
 
         for key in self.valid_datasets.keys():
+            print(f"Create DataLoader with {n_workers} workers for {key}")
             self.valid_loaders[key] = DataLoader(self.valid_datasets[key], batch_size=self.params["batch_size"],
                                                  sampler=self.valid_samplers[key],
-                                                 shuffle=False, num_workers=self.params["num_gpu"], pin_memory=True,
+                                                 shuffle=False, num_workers=n_workers, pin_memory=True,
                                                  drop_last=False, collate_fn=self.my_collate_function)
 
     def generate_test_loader(self, custom_name, sets_list):
@@ -188,12 +192,14 @@ class GenericDataset(Dataset):
         self.params = params
         self.mean = params["config"]["mean"] if "mean" in params["config"].keys() else None
         self.std = params["config"]["std"] if "std" in params["config"].keys() else None
+
         if from_segmentation:
+            raise NotImplementedError
             self.samples = self.load_segmented_samples(paths_and_sets)
         else:
             self.samples = self.load_samples(paths_and_sets)
 
-        self.apply_preprocessing(params["config"]["preprocessings"])
+        # self.apply_preprocessing(params["config"]["preprocessings"])
 
         self.padding_value = params["config"]["padding_value"]
         if self.padding_value == "mean":
@@ -206,6 +212,16 @@ class GenericDataset(Dataset):
 
     def __len__(self):
         return len(self.samples)
+
+
+    def load_image(self, path):
+        with Image.open(path) as image:
+            img = np.array(image)
+
+        if len(img.shape) == 2:
+            img = np.expand_dims(img, axis=2)
+
+        return img
 
     @staticmethod
     def load_samples(paths_and_sets):
@@ -225,87 +241,188 @@ class GenericDataset(Dataset):
                         label = gt[filename]
                     else:
                         label = gt[filename]["text"]
-                    with Image.open(os.path.join(path, set_name, filename)) as pil_img:
-                        img = np.array(pil_img)
-                        ## grayscale images
-                        if len(img.shape) == 2:
-                            img = np.expand_dims(img, axis=2)
                     samples.append({
                         "name": name,
                         "label": label.replace("¬", ""),
-                        "img": img,
+                        "path": os.path.join(path, set_name, filename),
                         "unchanged_label": label,
+                        "token_label": [],
+                        "label_len": 0,
+                        "line_label": [],
+                        "token_line_label": [],
+                        "line_label_len": [],
+                        "nb_lines": [],
                     })
                     if type(gt[filename]) is dict and "lines" in gt[filename].keys():
                         samples[-1]["raw_line_seg_label"] = gt[filename]["lines"]
-        return samples
 
-    def apply_preprocessing(self, preprocessings):
-        for i in range(len(self.samples)):
-            self.samples[i]["resize_ratio"] = [1, 1]
-            for preprocessing in preprocessings:
+        return pd.DataFrame(samples)
 
-                if preprocessing["type"] == "dpi":
-                    ratio = preprocessing["target"] / preprocessing["source"]
-                    temp_img = self.samples[i]["img"]
-                    h, w, c = temp_img.shape
-                    temp_img = cv2.resize(temp_img, (int(np.ceil(w * ratio)), int(np.ceil(h * ratio))))
-                    if len(temp_img.shape) == 2:
-                        temp_img = np.expand_dims(temp_img, axis=2)
-                    self.samples[i]["img"] = temp_img
+    # @staticmethod
+    # def load_samples(paths_and_sets):
+    #     """
+    #     Load images and labels
+    #     """
+    #     samples = list()
+    #     for path_and_set in paths_and_sets:
+    #         path = path_and_set["path"]
+    #         set_name = path_and_set["set_name"]
+    #         with open(os.path.join(path, "labels.pkl"), "rb") as f:
+    #             info = pickle.load(f)
+    #             gt = info["ground_truth"][set_name]
+    #             for filename in gt.keys():
+    #                 name = os.path.join(os.path.basename(path), set_name, filename)
+    #                 if type(gt[filename]) is str:
+    #                     label = gt[filename]
+    #                 else:
+    #                     label = gt[filename]["text"]
+    #                 with Image.open(os.path.join(path, set_name, filename)) as pil_img:
+    #                     img = np.array(pil_img)
+    #                     ## grayscale images
+    #                     if len(img.shape) == 2:
+    #                         img = np.expand_dims(img, axis=2)
+    #                 samples.append({
+    #                     "name": name,
+    #                     "label": label.replace("¬", ""),
+    #                     "img": img,
+    #                     "unchanged_label": label,
+    #                 })
+    #                 if type(gt[filename]) is dict and "lines" in gt[filename].keys():
+    #                     samples[-1]["raw_line_seg_label"] = gt[filename]["lines"]
+    #     return samples
 
-                    self.samples[i]["resize_ratio"] = [ratio, ratio]
+    def apply_preprocessing(self, image):
+        # resize_ratio = [1, 1]
+        for preprocessing in self.params["config"]["preprocessings"]:
+            if preprocessing["type"] == "dpi":
+                ratio = preprocessing["target"] / preprocessing["source"]
+                h, w, c = image.shape
+                image = cv2.resize(image, (int(np.ceil(w * ratio)), int(np.ceil(h * ratio))))
+                if len(image.shape) == 2:
+                    image = np.expand_dims(image, axis=2)
+                # resize_ratio = [ratio, ratio]
 
-                if preprocessing["type"] == "to_grayscaled":
-                    temp_img = self.samples[i]["img"]
-                    h, w, c = temp_img.shape
-                    if c == 3:
-                        self.samples[i]["img"] = np.expand_dims(0.2125*temp_img[:, :, 0] + 0.7154*temp_img[:, :, 1] + 0.0721*temp_img[:, :, 2], axis=2).astype(np.uint8)
+            if preprocessing["type"] == "to_grayscaled":
+                h, w, c = image.shape
+                if c == 3:
+                    image = np.expand_dims(
+                        0.2125 * image[:, :, 0] + 0.7154 * image[:, :, 1] + 0.0721 * image[:, :, 2],
+                        axis=2).astype(np.uint8)
 
-                if preprocessing["type"] == "to_RGB":
-                    temp_img = self.samples[i]["img"]
-                    h, w, c = temp_img.shape
-                    if c == 1:
-                        self.samples[i]["img"] = np.concatenate([temp_img, temp_img, temp_img], axis=2)
+            if preprocessing["type"] == "to_RGB":
+                h, w, c = image.shape
+                if c == 1:
+                    image = np.concatenate([image, image, image], axis=2)
 
-                if preprocessing["type"] == "resize":
-                    pad_val, keep_ratio = preprocessing["padding_value"], preprocessing["keep_ratio"]
-                    max_h, max_w = preprocessing["max_height"], preprocessing["max_width"]
-                    temp_img = self.samples[i]["img"]
-                    h, w, c = temp_img.shape
+            if preprocessing["type"] == "resize":
+                pad_val, keep_ratio = preprocessing["padding_value"], preprocessing["keep_ratio"]
+                max_h, max_w = preprocessing["max_height"], preprocessing["max_width"]
+                h, w, c = image.shape
 
-                    ratio_h = max_h / h if max_h else 1
-                    ratio_w = max_w / w if max_w else 1
-                    if keep_ratio:
-                        ratio_h = ratio_w = min(ratio_w, ratio_h)
-                    new_h = min(max_h,  int(h * ratio_h))
-                    new_w = min(max_w,  int(w * ratio_w))
-                    temp_img = cv2.resize(temp_img, (new_w, new_h))
-                    if len(temp_img.shape) == 2:
-                        temp_img = np.expand_dims(temp_img, axis=2)
+                ratio_h = max_h / h if max_h else 1
+                ratio_w = max_w / w if max_w else 1
+                if keep_ratio:
+                    ratio_h = ratio_w = min(ratio_w, ratio_h)
+                new_h = min(max_h, int(h * ratio_h))
+                new_w = min(max_w, int(w * ratio_w))
+                image = cv2.resize(image, (new_w, new_h))
+                if len(image.shape) == 2:
+                    image = np.expand_dims(image, axis=2)
 
-                    self.samples[i]["img"] = temp_img
-                    self.samples[i]["resize_ratio"] = [ratio_h, ratio_w]
+                # resize_ratio = [ratio_h, ratio_w]
+
+        # return image, resize_ratio
+        return image
+
+
+    # def apply_preprocessing(self, preprocessings):
+    #     for i in range(len(self.samples)):
+    #         self.samples[i]["resize_ratio"] = [1, 1]
+    #         for preprocessing in preprocessings:
+    #
+    #             if preprocessing["type"] == "dpi":
+    #                 ratio = preprocessing["target"] / preprocessing["source"]
+    #                 temp_img = self.samples[i]["img"]
+    #                 h, w, c = temp_img.shape
+    #                 temp_img = cv2.resize(temp_img, (int(np.ceil(w * ratio)), int(np.ceil(h * ratio))))
+    #                 if len(temp_img.shape) == 2:
+    #                     temp_img = np.expand_dims(temp_img, axis=2)
+    #                 self.samples[i]["img"] = temp_img
+    #
+    #                 self.samples[i]["resize_ratio"] = [ratio, ratio]
+    #
+    #             if preprocessing["type"] == "to_grayscaled":
+    #                 temp_img = self.samples[i]["img"]
+    #                 h, w, c = temp_img.shape
+    #                 if c == 3:
+    #                     self.samples[i]["img"] = np.expand_dims(0.2125*temp_img[:, :, 0] + 0.7154*temp_img[:, :, 1] + 0.0721*temp_img[:, :, 2], axis=2).astype(np.uint8)
+    #
+    #             if preprocessing["type"] == "to_RGB":
+    #                 temp_img = self.samples[i]["img"]
+    #                 h, w, c = temp_img.shape
+    #                 if c == 1:
+    #                     self.samples[i]["img"] = np.concatenate([temp_img, temp_img, temp_img], axis=2)
+    #
+    #             if preprocessing["type"] == "resize":
+    #                 pad_val, keep_ratio = preprocessing["padding_value"], preprocessing["keep_ratio"]
+    #                 max_h, max_w = preprocessing["max_height"], preprocessing["max_width"]
+    #                 temp_img = self.samples[i]["img"]
+    #                 h, w, c = temp_img.shape
+    #
+    #                 ratio_h = max_h / h if max_h else 1
+    #                 ratio_w = max_w / w if max_w else 1
+    #                 if keep_ratio:
+    #                     ratio_h = ratio_w = min(ratio_w, ratio_h)
+    #                 new_h = min(max_h,  int(h * ratio_h))
+    #                 new_w = min(max_w,  int(w * ratio_w))
+    #                 temp_img = cv2.resize(temp_img, (new_w, new_h))
+    #                 if len(temp_img.shape) == 2:
+    #                     temp_img = np.expand_dims(temp_img, axis=2)
+    #
+    #                 self.samples[i]["img"] = temp_img
+    #                 self.samples[i]["resize_ratio"] = [ratio_h, ratio_w]
 
     def compute_std_mean(self):
         if self.mean is not None and self.std is not None:
             return self.mean, self.std
-        _, _, c = self.samples[0]["img"].shape
+        _, _, c = self.load_image(self.samples.at[0, "path"]).shape
         sum = np.zeros((c,))
         nb_pixels = 0
         for i in range(len(self.samples)):
-            img = self.samples[i]["img"]
+            img = self.load_image(self.samples.at[i, "path"])
             sum += np.sum(img, axis=(0, 1))
             nb_pixels += np.prod(img.shape[:2])
         mean = sum / nb_pixels
         diff = np.zeros((c,))
         for i in range(len(self.samples)):
-            img = self.samples[i]["img"]
+            img = self.load_image(self.samples.at[i, "path"])
             diff += [np.sum((img[:, :, k] - mean[k]) ** 2) for k in range(c)]
         std = np.sqrt(diff / nb_pixels)
         self.mean = mean
         self.std = std
+        print("Mean: ", mean)
+        print("Std:  ", std)
         return mean, std
+
+    # def compute_std_mean(self):
+    #     if self.mean is not None and self.std is not None:
+    #         return self.mean, self.std
+    #     _, _, c = self.samples[0]["img"].shape
+    #     sum = np.zeros((c,))
+    #     nb_pixels = 0
+    #     for i in range(len(self.samples)):
+    #         img = self.samples[i]["img"]
+    #         sum += np.sum(img, axis=(0, 1))
+    #         nb_pixels += np.prod(img.shape[:2])
+    #     mean = sum / nb_pixels
+    #     diff = np.zeros((c,))
+    #     for i in range(len(self.samples)):
+    #         img = self.samples[i]["img"]
+    #         diff += [np.sum((img[:, :, k] - mean[k]) ** 2) for k in range(c)]
+    #     std = np.sqrt(diff / nb_pixels)
+    #     self.mean = mean
+    #     self.std = std
+    #     return mean, std
 
     def apply_data_augmentation(self, img):
         aug = self.params["config"]["augmentation"]
@@ -319,7 +436,7 @@ class GenericDataset(Dataset):
                 img = DPIAdjusting(factor)(img)
             if "perspective" in aug.keys() and np.random.rand() < aug["perspective"]["proba"]:
                 scale = np.random.uniform(aug["perspective"]["min_factor"], aug["perspective"]["max_factor"])
-                img = RandomPerspective(distortion_scale=scale, p=1, interpolation=Image.BILINEAR, fill=255)(img)
+                img = RandomPerspective(distortion_scale=scale, p=1, interpolation=InterpolationMode.BILINEAR, fill=255)(img)
             elif "elastic_distortion" in aug.keys() and np.random.rand() < aug["elastic_distortion"]["proba"]:
                 magnitude = np.random.randint(1, aug["elastic_distortion"]["max_magnitude"] + 1)
                 kernel = np.random.randint(1, aug["elastic_distortion"]["max_kernel"] + 1)
@@ -360,7 +477,21 @@ class OCRDataset(GenericDataset):
         self.reduce_dims_factor = np.array([params["config"]["height_divisor"], params["config"]["width_divisor"], 1])
 
     def __getitem__(self, idx):
-        sample = copy.deepcopy(self.samples[idx])
+        row = copy.deepcopy(self.samples.loc[idx])
+        sample = {
+            # Values added in load_labels (except "img", will be added later in this method)
+            "name": copy.deepcopy(row["name"]),
+            "label": copy.deepcopy(row["label"]),
+            "unchanged_label": copy.deepcopy(row["unchanged_label"]),
+            "img": self.apply_preprocessing(self.load_image(copy.deepcopy(row["path"]))),
+            # Values added in convert_labels
+            "token_label": copy.deepcopy(row["token_label"]),
+            "label_len": copy.deepcopy(row["label_len"]),
+            "line_label": copy.deepcopy(row["line_label"]),
+            "token_line_label": copy.deepcopy(row["token_line_label"]),
+            "line_label_len": copy.deepcopy(row["line_label_len"]),
+            "nb_lines": copy.deepcopy(row["nb_lines"]),
+        }
 
         # Curriculum learning
         if self.curriculum_config:
@@ -390,8 +521,10 @@ class OCRDataset(GenericDataset):
             if "CTC_pg" in self.params["config"]["constraints"]:
                 max_label_len = sample["label_len"]
                 height = max(sample["img_reduced_shape"][0], 1)
-            if 2 * max_label_len + 1 > sample["img_reduced_shape"][1]*height:
-                sample["img"] = pad_image_width_right(sample["img"], int(np.ceil((2 * max_label_len + 1) / height) * self.reduce_dims_factor[1]), self.padding_value)
+            if 2 * max_label_len + 1 > sample["img_reduced_shape"][1] * height:
+                sample["img"] = pad_image_width_right(sample["img"], int(np.ceil((2 * max_label_len + 1) / height) *
+                                                                         self.reduce_dims_factor[1]),
+                                                      self.padding_value)
                 sample["img_shape"] = sample["img"].shape
                 sample["img_reduced_shape"] = np.floor(sample["img_shape"] / self.reduce_dims_factor).astype(int)
             sample["img_reduced_shape"] = [max(1, t) for t in sample["img_reduced_shape"]]
@@ -399,37 +532,138 @@ class OCRDataset(GenericDataset):
         # Padding constraints to handle model needs
         if "padding" in self.params["config"]["constraints"]:
             if sample["img_shape"][0] < self.params["config"]["padding"]["min_height"]:
-                sample["img"] = pad_image_height_bottom(sample["img"], self.params["config"]["padding"]["min_height"], self.padding_value)
+                sample["img"] = pad_image_height_bottom(sample["img"], self.params["config"]["padding"]["min_height"],
+                                                        self.padding_value)
             if sample["img_shape"][1] < self.params["config"]["padding"]["min_width"]:
-                sample["img"] = pad_image_width_right(sample["img"], self.params["config"]["padding"]["min_width"], self.padding_value)
+                sample["img"] = pad_image_width_right(sample["img"], self.params["config"]["padding"]["min_width"],
+                                                      self.padding_value)
 
         return sample
+
+    # def __getitem__(self, idx):
+    #     sample = copy.deepcopy(self.samples[idx])
+    #
+    #     # Curriculum learning
+    #     if self.curriculum_config:
+    #         if self.curriculum_config["mode"] == "char":
+    #             sample["label"] = sample["label"][:self.curriculum_config["nb_chars"]]
+    #             sample["token_label"] = sample["token_label"][:self.curriculum_config["nb_chars"]]
+    #             sample["label_len"] = len(sample["label"])
+    #
+    #     # Data augmentation
+    #     sample["img"] = self.apply_data_augmentation(sample["img"])
+    #
+    #     # Normalization if requested
+    #     if "normalize" in self.params["config"]["constraints"]:
+    #         sample["img"] = (sample["img"] - self.mean) / self.std
+    #
+    #     sample["img_shape"] = sample["img"].shape
+    #     sample["img_reduced_shape"] = np.floor(sample["img_shape"] / self.reduce_dims_factor).astype(int)
+    #
+    #     # Padding to handle CTC requirements
+    #     if self.set_name == "train":
+    #         max_label_len = 0
+    #         height = 1
+    #         if "CTC_line" in self.params["config"]["constraints"]:
+    #             max_label_len = sample["label_len"]
+    #         if "CTC_va" in self.params["config"]["constraints"]:
+    #             max_label_len = max(sample["line_label_len"])
+    #         if "CTC_pg" in self.params["config"]["constraints"]:
+    #             max_label_len = sample["label_len"]
+    #             height = max(sample["img_reduced_shape"][0], 1)
+    #         if 2 * max_label_len + 1 > sample["img_reduced_shape"][1] * height:
+    #             sample["img"] = pad_image_width_right(sample["img"], int(np.ceil((2 * max_label_len + 1) / height) *
+    #                                                                      self.reduce_dims_factor[1]),
+    #                                                   self.padding_value)
+    #             sample["img_shape"] = sample["img"].shape
+    #             sample["img_reduced_shape"] = np.floor(sample["img_shape"] / self.reduce_dims_factor).astype(int)
+    #         sample["img_reduced_shape"] = [max(1, t) for t in sample["img_reduced_shape"]]
+    #
+    #     # Padding constraints to handle model needs
+    #     if "padding" in self.params["config"]["constraints"]:
+    #         if sample["img_shape"][0] < self.params["config"]["padding"]["min_height"]:
+    #             sample["img"] = pad_image_height_bottom(sample["img"], self.params["config"]["padding"]["min_height"],
+    #                                                     self.padding_value)
+    #         if sample["img_shape"][1] < self.params["config"]["padding"]["min_width"]:
+    #             sample["img"] = pad_image_width_right(sample["img"], self.params["config"]["padding"]["min_width"],
+    #                                                   self.padding_value)
+    #
+    #     return sample
 
     def get_charset(self):
         charset = set()
         for i in range(len(self.samples)):
-            charset = charset.union(set(self.samples[i]["label"]))
+            charset = charset.union(set(self.samples.at[i, "label"]))
         return charset
+
+    # def get_charset(self):
+    #     charset = set()
+    #     for i in range(len(self.samples)):
+    #         charset = charset.union(set(self.samples[i]["label"]))
+    #     return charset
+
+    # def convert_labels(self):
+    #     """
+    #     Label str to token at character level
+    #     """
+    #     for i in range(len(self.samples)):
+    #         label = self.samples[i][self.i_label]
+    #         line_labels = label.split("\n")
+    #         full_label = label.replace("\n", " ").replace("  ", " ")
+    #
+    #         self.samples[i][self.i_label] = full_label
+    #
+    #         token_label = LM_str_to_ind(self.charset, full_label)
+    #         if "add_eot" in self.params["config"]["constraints"]:
+    #             token_label.append(self.tokens["end"])
+    #         self.token_labels[i] = np.array(token_label)
+    #         self.label_lens[i] = len(token_label)
+    #
+    #         self.line_labels[i] = np.array(line_labels)
+    #         self.token_line_labels[i] = np.array([LM_str_to_ind(self.charset, l) for l in line_labels])
+    #         self.line_label_lens[i] = np.array([len(l) for l in line_labels])
+    #         self.nb_lines[i] = len(line_labels)
+    #     print("convert_labels finished")
 
     def convert_labels(self):
         """
         Label str to token at character level
         """
         for i in range(len(self.samples)):
-            label = self.samples[i]["label"]
+            label = self.samples.at[i, "label"]
             line_labels = label.split("\n")
             full_label = label.replace("\n", " ").replace("  ", " ")
 
-            self.samples[i]["label"] = full_label
-            self.samples[i]["token_label"] = LM_str_to_ind(self.charset, full_label)
+            self.samples.at[i, "label"] = full_label
+            self.samples.at[i, "token_label"] = LM_str_to_ind(self.charset, full_label)
             if "add_eot" in self.params["config"]["constraints"]:
-                self.samples[i]["token_label"].append(self.tokens["end"])
-            self.samples[i]["label_len"] = len(self.samples[i]["token_label"])
+                self.samples.at[i, "token_label"].append(self.tokens["end"])
+            self.samples.at[i, "label_len"] = len(self.samples.at[i, "token_label"])
 
-            self.samples[i]["line_label"] = line_labels
-            self.samples[i]["token_line_label"] = [LM_str_to_ind(self.charset, l) for l in line_labels]
-            self.samples[i]["line_label_len"] = [len(l) for l in line_labels]
-            self.samples[i]["nb_lines"] = len(line_labels)
+            self.samples.at[i, "line_label"] = line_labels
+            self.samples.at[i, "token_line_label"] = [LM_str_to_ind(self.charset, l) for l in line_labels]
+            self.samples.at[i, "line_label_len"] = [len(l) for l in line_labels]
+            self.samples.at[i, "nb_lines"] = len(line_labels)
+
+    # def convert_labels(self):
+    #     """
+    #     Label str to token at character level
+    #     """
+    #     for i in range(len(self.samples)):
+    #         label = self.samples[i]["label"]
+    #         line_labels = label.split("\n")
+    #         full_label = label.replace("\n", " ").replace("  ", " ")
+    #
+    #         self.samples[i]["label"] = full_label
+    #         self.samples[i]["token_label"] = LM_str_to_ind(self.charset, full_label)
+    #         if "add_eot" in self.params["config"]["constraints"]:
+    #             self.samples[i]["token_label"].append(self.tokens["end"])
+    #         self.samples[i]["label_len"] = len(self.samples[i]["token_label"])
+    #
+    #         self.samples[i]["line_label"] = line_labels
+    #         self.samples[i]["token_line_label"] = [LM_str_to_ind(self.charset, l) for l in line_labels]
+    #         self.samples[i]["line_label_len"] = [len(l) for l in line_labels]
+    #         self.samples[i]["nb_lines"] = len(line_labels)
 
 
 class OCRCollateFunction:

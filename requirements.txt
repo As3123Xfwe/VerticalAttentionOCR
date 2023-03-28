@@ -9,3 +9,4 @@ tqdm
 editdistance
 tensorboard
 wandb
+pandas
