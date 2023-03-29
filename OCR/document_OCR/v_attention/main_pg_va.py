@@ -217,7 +217,7 @@ if __name__ == "__main__":
             "max_training_time": 3600 * (24),  # max training time limit (in seconds)
             "load_epoch": "best",  # ["best", "last"], to load weights from best epoch or last trained epoch
             "interval_save_weights": None,  # None: keep best and last only
-            "batch_size": 16,  # mini-batch size per GPU
+            "batch_size": 8,  # mini-batch size per GPU
             "use_ddp": True,  # Use DistributedDataParallel
             "ddp_port": "10000",  # Port for Distributed Data Parallel communications
             "use_apex": False,  # Enable mix-precision with apex package
