@@ -137,7 +137,7 @@ class DatasetManager:
                 self.valid_samplers[custom_name] = None
 
     def load_dataloaders(self):
-        n_workers = self.params['num_gpu'] * 4
+        n_workers = self.params["num_loader_workers"]
         print(f"Create DataLoader with {n_workers} workers")
         self.train_loader = DataLoader(self.train_dataset, batch_size=self.params["batch_size"],
                                        shuffle=True if not self.train_sampler else False,
