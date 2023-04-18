@@ -81,12 +81,21 @@ def train_and_test(rank, params, dataset_name, suffix):
 if __name__ == "__main__":
     import sys
     args = sys.argv
-    dataset_name, output_suffix, *constraints = args[1:]
+    dataset_name, output_suffix, checkpoint_path, *constraints = args[1:]
 
     num_loader_workers = int(os.getenv("OCR_LOADER_WORKERS")) if os.getenv("OCR_LOADER_WORKERS") is not None else torch.cuda.device_count()
 
+    transfer_learning = None
+    if checkpoint_path:
+        transfer_learning = {
+            # model_name: [state_dict_name, checkpoint_path, learnable, strict]
+            "encoder": ["encoder", checkpoint_path, True, True],
+            "decoder": ["decoder", checkpoint_path, True, True],
+        }
+
     print("~~~ Dataset name:", dataset_name)
     print("~~~ Output suffix:", output_suffix)
+    print("~~~ Transfer learning:", transfer_learning)
     print("~~~ Constraints:", constraints)
     print("~~~ # GPUs:", torch.cuda.device_count())
     print("~~~ # Cuda available:", torch.cuda.is_available())
@@ -176,7 +185,7 @@ if __name__ == "__main__":
                 "encoder": FCN_Encoder,
                 "decoder": Decoder,
             },
-            "transfer_learning": None,  # dict : {model_name: [state_dict_name, checkpoint_path, learnable, strict], }
+            "transfer_learning": transfer_learning,  # dict : {model_name: [state_dict_name, checkpoint_path, learnable, strict], }
             "input_channels": 3,  # 1 for grayscale images, 3 for RGB ones (or grayscale as RGB)
             "dropout": 0.5,  # dropout probability for standard dropout (half dropout probability is taken for spatial dropout)
         },
