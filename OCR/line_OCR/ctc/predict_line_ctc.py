@@ -87,7 +87,7 @@ if __name__ == "__main__":
     else:
         constraints = []
 
-    stop_chars = set(set(params.get("stop_chars")) or [])
+    stop_chars = set(params.get("stop_chars") or [])
 
     print("~~~ Train dataset name:", train_dataset_name)
     print("~~~ Output suffix:", output_suffix)
