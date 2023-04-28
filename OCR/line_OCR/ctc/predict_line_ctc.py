@@ -69,8 +69,8 @@ if __name__ == "__main__":
 
     num_loader_workers = int(os.getenv("OCR_LOADER_WORKERS")) if os.getenv("OCR_LOADER_WORKERS") is not None else torch.cuda.device_count()
 
-    train_dataset_name = params["dataset"]
-    dataset_name = params["train_dataset"]
+    train_dataset_name = params["train_dataset"]
+    dataset_name = params["dataset"]
     output_suffix = params.get("suffix") or ""
     transfer_learning = None
     checkpoint_path = params.get("transfer", None)
