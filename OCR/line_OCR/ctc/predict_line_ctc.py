@@ -87,13 +87,13 @@ if __name__ == "__main__":
     else:
         constraints = []
 
-    stop_chars = set(params.get("stop_chars") or [])
+    stop_chars = params.get("stop_chars") or ""
 
     print("~~~ Train dataset name:", train_dataset_name)
     print("~~~ Output suffix:", output_suffix)
     print("~~~ Dataset name:", dataset_name)
     print("~~~ Constraints:", constraints)
-    print("~~~ Stop chars:", stop_chars)
+    print("~~~ Stop chars:", set(stop_chars))
     print("~~~ # GPUs:", torch.cuda.device_count())
     print("~~~ # Cuda available:", torch.cuda.is_available())
     print("~~~ # loader workers:", num_loader_workers)
