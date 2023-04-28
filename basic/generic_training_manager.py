@@ -94,6 +94,8 @@ class GenericTrainingManager:
         self.use_amp = self.params["training_params"]["use_amp"]
         self.scaler = torch.cuda.amp.GradScaler(enabled=self.use_amp)
 
+        self.stop_chars = set(params["dataset_params"]["stop_chars"])
+
     def init_paths(self):
         ## Create output folders
         output_path = os.path.join("outputs", self.params["training_params"]["output_folder"])

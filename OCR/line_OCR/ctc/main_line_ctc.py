@@ -81,11 +81,15 @@ def train_and_test(rank, params, dataset_name, suffix):
 if __name__ == "__main__":
     import sys
     args = sys.argv
-    dataset_name, output_suffix, checkpoint_path, *constraints = args[1:]
+    params = dict(param.split("=", 1) for param in args[1:])
+    #dataset_name, output_suffix, checkpoint_path, *constraints = args[1:]
 
     num_loader_workers = int(os.getenv("OCR_LOADER_WORKERS")) if os.getenv("OCR_LOADER_WORKERS") is not None else torch.cuda.device_count()
 
+    dataset_name = params["dataset"]
+    output_suffix = params.get("suffix") or ""
     transfer_learning = None
+    checkpoint_path = params.get("transfer", None)
     if checkpoint_path:
         transfer_learning = {
             # model_name: [state_dict_name, checkpoint_path, learnable, strict]
@@ -93,10 +97,19 @@ if __name__ == "__main__":
             "decoder": ["decoder", checkpoint_path, True, True],
         }
 
+    constraints = params.get("constraints")
+    if constraints:
+        constraints = constraints.split()
+    else:
+        constraints = []
+
+    stop_chars = set(set(params.get("stop_chars")) or [])
+
     print("~~~ Dataset name:", dataset_name)
     print("~~~ Output suffix:", output_suffix)
     print("~~~ Transfer learning:", transfer_learning)
     print("~~~ Constraints:", constraints)
+    print("~~~ Stop chars:", stop_chars)
     print("~~~ # GPUs:", torch.cuda.device_count())
     print("~~~ # Cuda available:", torch.cuda.is_available())
     print("~~~ # loader workers:", num_loader_workers)
@@ -177,6 +190,7 @@ if __name__ == "__main__":
                 },
             },
             "num_loader_workers": num_loader_workers,
+            "stop_chars": stop_chars,
         },
 
         "model_params": {

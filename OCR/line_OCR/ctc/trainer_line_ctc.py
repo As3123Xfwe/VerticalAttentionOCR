@@ -101,6 +101,9 @@ class TrainerLineCTC(GenericTrainingManager):
         str_x = [LM_ind_to_str(self.dataset.charset, t, oov_symbol="") for t in ind_x]
         str_y = [LM_ind_to_str(self.dataset.charset, t) for t in ind_y]
         str_x = [re.sub("( )+", ' ', t).strip(" ") for t in str_x]
+        stop_chars = self.stop_chars
+        if stop_chars:
+            str_x = ["".join(c for c in sx if c not in stop_chars) for sx in str_x]
         metrics = dict()
         for metric_name in metric_names:
             if metric_name == "cer":
