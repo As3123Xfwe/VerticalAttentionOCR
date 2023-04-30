@@ -103,13 +103,23 @@ if __name__ == "__main__":
     else:
         constraints = []
 
-    stop_chars = set(params.get("stop_chars") or [])
+    stop_chars = params.get("stop_chars") or ""
+
+    n_epochs = 3000
+    if n_epochs in params:
+        n_epochs = int(params["n_epochs"])
+
+    max_training_time = 3600 * (24 * 1)  # 1 day
+    if max_training_time in params:
+        max_training_time = int(params["max_training_time"])
 
     print("~~~ Dataset name:", dataset_name)
     print("~~~ Output suffix:", output_suffix)
     print("~~~ Transfer learning:", transfer_learning)
     print("~~~ Constraints:", constraints)
     print("~~~ Stop chars:", stop_chars)
+    print("~~~ # Epochs:", n_epochs)
+    print("~~~ Max training time:", max_training_time)
     print("~~~ # GPUs:", torch.cuda.device_count())
     print("~~~ # Cuda available:", torch.cuda.is_available())
     print("~~~ # loader workers:", num_loader_workers)
@@ -206,8 +216,8 @@ if __name__ == "__main__":
 
         "training_params": {
             "output_folder": f"fcn_{dataset_name.lower()}_line{output_suffix}",  # folder names for logs and weigths
-            "max_nb_epochs": 3000,  # max number of epochs for the training
-            "max_training_time":  3600 * (24),  # max training time limit (in seconds)
+            "max_nb_epochs": n_epochs,  # max number of epochs for the training
+            "max_training_time":  max_training_time,  # max training time limit (in seconds)
             "load_epoch": "best",  # ["best", "last"], to load weights from best epoch or last trained epoch
             "interval_save_weights": None,  # None: keep best and last only
             "use_ddp": True,  # Use DistributedDataParallel
