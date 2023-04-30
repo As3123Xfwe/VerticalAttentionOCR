@@ -82,6 +82,7 @@ if __name__ == "__main__":
     import sys
     args = sys.argv
     params = dict(param.split("=", 1) for param in args[1:])
+    print(params)
     #dataset_name, output_suffix, checkpoint_path, *constraints = args[1:]
 
     num_loader_workers = int(os.getenv("OCR_LOADER_WORKERS")) if os.getenv("OCR_LOADER_WORKERS") is not None else torch.cuda.device_count()
