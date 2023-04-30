@@ -107,11 +107,11 @@ if __name__ == "__main__":
     stop_chars = params.get("stop_chars") or ""
 
     n_epochs = 3000
-    if n_epochs in params:
+    if "n_epochs" in params:
         n_epochs = int(params["n_epochs"])
 
     max_training_time = 3600 * (24 * 1)  # 1 day
-    if max_training_time in params:
+    if "max_training_time" in params:
         max_training_time = int(params["max_training_time"])
 
     print("~~~ Dataset name:", dataset_name)
