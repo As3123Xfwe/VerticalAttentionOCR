@@ -314,6 +314,15 @@ class GenericDataset(Dataset):
                 if c == 1:
                     image = np.concatenate([image, image, image], axis=2)
 
+            if preprocessing["type"] == "to_binary":
+                h, w, c = image.shape
+                if c == 3:
+                    image = np.expand_dims(
+                        0.2125 * image[:, :, 0] + 0.7154 * image[:, :, 1] + 0.0721 * image[:, :, 2],
+                        axis=2).astype(np.uint8)
+                image = cv2.threshold(image, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)[1]
+                image = cv2.merge([image, image, image])
+
             if preprocessing["type"] == "resize":
                 pad_val, keep_ratio = preprocessing["padding_value"], preprocessing["keep_ratio"]
                 max_h, max_w = preprocessing["max_height"], preprocessing["max_width"]
