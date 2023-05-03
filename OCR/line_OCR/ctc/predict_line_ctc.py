@@ -89,11 +89,27 @@ if __name__ == "__main__":
 
     stop_chars = params.get("stop_chars") or ""
 
-    print("~~~ Train dataset name:", train_dataset_name)
-    print("~~~ Output suffix:", output_suffix)
+    n_epochs = 3000
+    if "n_epochs" in params:
+        n_epochs = int(params["n_epochs"])
+
+    max_training_time = 3600 * (24 * 1)  # 1 day
+    if "max_training_time" in params:
+        max_training_time = int(params["max_training_time"])
+
+    image_colorization = "to_RGB"
+    if "image_colorization" in params:
+        image_colorization = params["image_colorization"]
+        assert image_colorization in {"to_RGB", "to_grayscaled", "to_binary"}
+
     print("~~~ Dataset name:", dataset_name)
+    print("~~~ Output suffix:", output_suffix)
+    print("~~~ Transfer learning:", transfer_learning)
     print("~~~ Constraints:", constraints)
-    print("~~~ Stop chars:", set(stop_chars))
+    print("~~~ Stop chars:", stop_chars)
+    print("~~~ # Epochs:", n_epochs)
+    print("~~~ Max training time:", max_training_time)
+    print("~~~ Image colorization:", image_colorization)
     print("~~~ # GPUs:", torch.cuda.device_count())
     print("~~~ # Cuda available:", torch.cuda.is_available())
     print("~~~ # loader workers:", num_loader_workers)
@@ -128,7 +144,7 @@ if __name__ == "__main__":
                         "target": 150,  # to 150 dpi
                     },
                     {
-                        "type": "to_RGB",
+                        "type": image_colorization,
                         # if grayscale image, produce RGB one (3 channels with same value) otherwise do nothing
                     },
                 ],
